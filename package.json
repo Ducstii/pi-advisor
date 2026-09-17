@@ -1,0 +1,17 @@
+{
+  "name": "pi-advisor",
+  "version": "0.1.0",
+  "description": "pi extension delegating agent decisions to the Jev System One API (jev_advise tool + /jev-connect)",
+  "type": "module",
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.74.0",
+    "@earendil-works/pi-tui": ">=0.74.0",
+    "typebox": "*"
+  }
+}
