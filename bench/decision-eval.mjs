@@ -4,22 +4,25 @@
  * Brier score (probabilistic honesty), and reliability bins.
  * Usage: node decision-eval.mjs
  */
-import { createJiti } from "<PI_INSTALL_DIR>/node_modules/jiti/lib/jiti.mjs";
-const PI_DIR =
-  "<PI_INSTALL_DIR>";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+const HERE = (f) => fileURLToPath(new URL(f, import.meta.url));
+const require = createRequire(import.meta.url);
+const { createJiti } = require("jiti");
+const TYPEBOX_ENTRY = require.resolve("typebox");
 const jiti = createJiti(import.meta.url, {
   fsCache: false,
   moduleCache: false,
   alias: {
     "@earendil-works/pi-coding-agent":
-      "/tmp/jev-check/stub-pi-coding-agent.mjs",
-    "@earendil-works/pi-tui": "/tmp/jev-check/stub-pi-tui.mjs",
-    typebox: `${PI_DIR}/node_modules/typebox/build/index.mjs`,
+      HERE("./pi-stub.mjs"),
+    "@earendil-works/pi-tui": HERE("./tui-stub.mjs"),
+    typebox: TYPEBOX_ENTRY,
   },
 });
 const tools = [];
 await jiti
-  .import("./pi-advisor/index.ts")
+  .import("../index.ts")
   .then((m) =>
     m.default({
       registerTool: (t) => tools.push(t),

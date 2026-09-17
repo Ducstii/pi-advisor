@@ -17,6 +17,7 @@ const JEV_KEY_FILE = join(homedir(), ".pi", "agent", "jev.json");
 const JEV_INPUT_USD_PER_MTOK = 0.042;
 const JEV_TIMEOUT_MS = 10_000;
 const NEAR_TIE_DELTA = 0.05;
+// <= on purpose: 0.60 confidence is coin-flip territory and must flag.
 const NEAR_TIE_CONFIDENCE = 0.6;
 
 interface JevQuestionInput {
@@ -277,19 +278,21 @@ export default function (pi: ExtensionAPI) {
 		name: "jev_advise",
 		label: "Jev Advisor",
 		description:
-			"Delegate a decision to the Jev System One API. Send a batch of typed questions with concrete context and get typed probabilistic answers: choice (winner + distribution + confidence), score (rating against an ordered scale of levels), noul (yes/no probability). One line per answer; near-tied or low-confidence results are flagged NEAR-TIE and should go to the user instead.",
+			"Delegate a decision to the Jev System One API. Send a batch of typed questions with concrete context and get typed probabilistic answers: choice (winner + distribution + confidence), score (rating against an ordered scale of levels), noul (yes/no probability). One line per answer; near-tie (winner margin <= 0.05) or low-confidence (<= 0.6) results are flagged NEAR-TIE and should go to the user instead.",
 		promptSnippet:
 			"Consult Jev for decisions: development choices, framing questions for the user, and code-quality self-checks.",
 		promptGuidelines: [
 			"When making a development decision — approach, library, algorithm, data shape, strategy — call jev_advise with the concrete facts as `context` instead of deciding from assumptions; decompose the decision into atomic questions and batch them in one call.",
 			"Before asking the user anything, call jev_advise to choose and frame the question (options = candidate questions); the user's answer, not jev_advise, is the decision.",
-			"After writing or refactoring non-trivial code, call jev_advise with the diff/code as `context` and a score-type question against explicit quality levels to check whether the code is as good as it can be; revise on low scores instead of defending.",
+			"After writing or refactoring non-trivial code, call jev_advise with the diff/code as `context` (verbatim, load-bearing paths) and a score-type question against explicit quality levels to check whether the code is as good as it can be; revise on low scores instead of defending.",
+			"Read confidence from jev_advise's reported answer distribution — never ask jev_advise a separate 'how confident are you' question; it does not see its own probabilities and returns a flat, meaningless self-assessment.",
+			"When a jev_advise verdict matters, re-ask it once with adversarial counter-context; a distribution that survives the counter-case is informed, one that collapses was anchored.",
 			"When jev_advise reports a NEAR-TIE or low confidence, treat the decision as user-facing: present the tied options to the user.",
 		],
 		parameters: Type.Object({
 			context: Type.String({
 				description:
-					"Full concrete facts the questions are about — code, diffs, constraints, prior results; becomes Jev's working state",
+					"Full concrete facts the questions are about — becomes Jev's working state. Paste load-bearing code/paths verbatim rather than summarizing; vague context yields vague verdicts. To test a verdict, re-ask with adversarial counter-context and compare distributions.",
 			}),
 			questions: Type.Array(questionSchema, {
 				description:
