@@ -33,7 +33,7 @@ interface JevAnswer {
 	score?: number;
 	noul?: number;
 	probabilities?: Record<string, number>;
-	legend?: string[];
+	legend?: Record<string, string> | string[];
 	confidence?: number;
 }
 
@@ -142,7 +142,13 @@ function formatChoice(id: string, answer: JevAnswer): string {
 
 function formatScore(id: string, answer: JevAnswer): string {
 	const score = typeof answer.score === "number" ? answer.score : NaN;
-	const legend = answer.legend ?? [];
+	// Jev returns legend as an object keyed by level index (e.g. {"0": "Calm"});
+	// tolerate an array too.
+	const legend = Array.isArray(answer.legend)
+		? answer.legend
+		: Object.entries(answer.legend ?? {})
+				.sort(([a], [b]) => Number(a) - Number(b))
+				.map(([, label]) => label);
 	const index = Number.isFinite(score) ? Math.max(0, Math.min(legend.length - 1, Math.round(score))) : -1;
 	const label = legend[index] === undefined ? "" : ` "${legend[index]}"`;
 	return `${id} → ${fmt(score, 1)}${label} (confidence ${fmt(answer.confidence ?? 0)})`;
