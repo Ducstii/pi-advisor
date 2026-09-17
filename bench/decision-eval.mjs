@@ -14,21 +14,18 @@ const jiti = createJiti(import.meta.url, {
   fsCache: false,
   moduleCache: false,
   alias: {
-    "@earendil-works/pi-coding-agent":
-      HERE("./pi-stub.mjs"),
+    "@earendil-works/pi-coding-agent": HERE("./pi-stub.mjs"),
     "@earendil-works/pi-tui": HERE("./tui-stub.mjs"),
     typebox: TYPEBOX_ENTRY,
   },
 });
 const tools = [];
-await jiti
-  .import("../index.ts")
-  .then((m) =>
-    m.default({
-      registerTool: (t) => tools.push(t),
-      registerCommand: () => {},
-    }),
-  );
+await jiti.import("../index.ts").then((m) =>
+  m.default({
+    registerTool: (t) => tools.push(t),
+    registerCommand: () => {},
+  }),
+);
 const tool = tools[0];
 
 // --- labeled cases: (context, question, correct option) ---------------------

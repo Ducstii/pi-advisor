@@ -16,9 +16,10 @@ const JEV_MODEL = "jev-latest";
 const JEV_KEY_FILE = join(homedir(), ".pi", "agent", "jev.json");
 const JEV_INPUT_USD_PER_MTOK = 0.042;
 const JEV_TIMEOUT_MS = 10_000;
-const NEAR_TIE_DELTA = 0.05;
-// <= on purpose: 0.60 confidence is coin-flip territory and must flag.
-const NEAR_TIE_CONFIDENCE = 0.6;
+// Escalation is a coverage-vs-risk policy, not a universal truth — env-tunable.
+// Confidence uses <= on purpose: 0.60 is coin-flip territory and must flag.
+const NEAR_TIE_DELTA = Number(process.env.JEV_NEAR_TIE_DELTA ?? 0.05);
+const NEAR_TIE_CONFIDENCE = Number(process.env.JEV_NEAR_TIE_CONFIDENCE ?? 0.6);
 
 interface JevQuestionInput {
 	id: string;
@@ -165,12 +166,17 @@ function formatChoice(id: string, answer: JevAnswer): string {
 	if (
 		top &&
 		second &&
-		(top[1] - second[1] <= NEAR_TIE_DELTA || confidence < NEAR_TIE_CONFIDENCE)
+		(top[1] - second[1] <= NEAR_TIE_DELTA ||
+			confidence <= NEAR_TIE_CONFIDENCE)
 	) {
 		return `${id} → ${top[0]} (${fmt(top[1])}) ≈ ${second[0]} (${fmt(second[1])}) · NEAR-TIE — consider asking the user`;
 	}
 	if (top) {
-		return `${id} → ${top[0]} (confidence ${fmt(confidence)}) · next: ${second ? `${second[0]} ${fmt(second[1])}` : "n/a"}`;
+		const margin = second ? top[1] - second[1] : 1;
+		// Surface a meaningful third option — a 0.4/0.35/0.25 spread must not render
+		// like a 0.9/0.08/0.02 confident winner.
+		const third = probs[2] && probs[2][1] > 0.2 ? ` · ${probs[2][0]} ${fmt(probs[2][1])}` : "";
+		return `${id} → ${top[0]} (confidence ${fmt(confidence)}) · next: ${second ? `${second[0]} ${fmt(second[1])}` : "n/a"}${third} · margin ${fmt(margin)}`;
 	}
 	// Contract-permitted: choice answer without probabilities — winner field only.
 	if (answer.choice)
@@ -233,6 +239,11 @@ function toUsage(usage: JevResponse["usage"]) {
 
 function validateQuestions(questions: JevQuestionInput[]): void {
 	for (const q of questions) {
+		if (/confiden/i.test(q.instructions)) {
+			throw new Error(
+				`Question "${q.id}": do not ask Jev for its own confidence — it cannot see its answer distributions and returns a flat, meaningless self-assessment. Read the reported confidence/probabilities on each answer instead.`,
+			);
+		}
 		if (q.type === "choice") {
 			const entries = Object.keys(q.options ?? {}).length;
 			if (entries < 1 || entries > 255) {
@@ -282,17 +293,18 @@ export default function (pi: ExtensionAPI) {
 		promptSnippet:
 			"Consult Jev for decisions: development choices, framing questions for the user, and code-quality self-checks.",
 		promptGuidelines: [
-			"When making a development decision — approach, library, algorithm, data shape, strategy — call jev_advise with the concrete facts as `context` instead of deciding from assumptions; decompose the decision into atomic questions and batch them in one call.",
+			"When making a development decision — approach, library, algorithm, data shape, strategy — call jev_advise with the concrete facts as `context` instead of deciding from assumptions; decompose the decision into atomic questions and batch them in one call. Shape `context` as: the decision, hard constraints, verbatim load-bearing code/diffs, and what a wrong choice costs — in that order.",
 			"Before asking the user anything, call jev_advise to choose and frame the question (options = candidate questions); the user's answer, not jev_advise, is the decision.",
-			"After writing or refactoring non-trivial code, call jev_advise with the diff/code as `context` (verbatim, load-bearing paths) and a score-type question against explicit quality levels to check whether the code is as good as it can be; revise on low scores instead of defending.",
+			"After writing or refactoring non-trivial code, put the quality check in the SAME jev_advise batch as the decision (a score-type question against explicit quality levels, with the verbatim diff in `context`); revise on low scores instead of defending.",
+			"Do not call jev_advise for facts readable from the repo, formatting/naming trivia, or to re-decide something without new evidence — reserve it for judgment calls that are not mechanically answerable.",
 			"Read confidence from jev_advise's reported answer distribution — never ask jev_advise a separate 'how confident are you' question; it does not see its own probabilities and returns a flat, meaningless self-assessment.",
-			"When a jev_advise verdict matters, re-ask it once with adversarial counter-context; a distribution that survives the counter-case is informed, one that collapses was anchored.",
+			"When a jev_advise verdict is NEAR-TIE or the decision is irreversible, re-ask ONCE with adversarial counter-context and the option order reversed: a verdict that survives the counter-case and the order swap is informed; one that flips was anchored.",
 			"When jev_advise reports a NEAR-TIE or low confidence, treat the decision as user-facing: present the tied options to the user.",
 		],
 		parameters: Type.Object({
 			context: Type.String({
 				description:
-					"Full concrete facts the questions are about — becomes Jev's working state. Paste load-bearing code/paths verbatim rather than summarizing; vague context yields vague verdicts. To test a verdict, re-ask with adversarial counter-context and compare distributions.",
+					"Full concrete facts the questions are about — becomes Jev's working state. Shape it: the decision, hard constraints, verbatim load-bearing code/diffs (never summaries), and what a wrong choice costs. To stress-test a verdict, re-ask with adversarial counter-context and reversed option order and compare distributions.",
 			}),
 			questions: Type.Array(questionSchema, {
 				description:
@@ -306,12 +318,22 @@ export default function (pi: ExtensionAPI) {
 				toQuestionMap(params.questions),
 				signal,
 			);
-			const text = params.questions
-				.map((q) => {
-					const answer = response.answers[q.id];
-					return answer ? formatAnswer(q.id, answer) : `${q.id} → no answer`;
-				})
-				.join("\n");
+			const lines = params.questions.map((q) => {
+				const answer = response.answers[q.id];
+				return answer ? formatAnswer(q.id, answer) : `${q.id} → no answer`;
+			});
+			// Thin context + multi-question batches is the known degradation mode:
+			// agents summarize instead of pasting code. Warn, don't fail — some
+			// decisions are genuinely self-contained.
+			if (
+				params.context.trim().length < 200 &&
+				params.questions.length >= 2
+			) {
+				lines.unshift(
+					"⚠ context is thin (< 200 chars) for a multi-question batch — verdicts degrade on summaries; paste the load-bearing code/diffs verbatim",
+				);
+			}
+			const text = lines.join("\n");
 			return {
 				content: [{ type: "text" as const, text }],
 				details: { answers: response.answers, usage: response.usage },
