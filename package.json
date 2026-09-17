@@ -1,6 +1,6 @@
 {
   "name": "pi-jev-advisor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "pi extension delegating agent decisions to the Jev System One API (jev_advise tool + /jev-connect)",
   "type": "module",
   "license": "MIT",
