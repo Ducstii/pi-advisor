@@ -2,9 +2,8 @@
 
 [pi coding-agent](https://github.com/badlogic/pi-mono) extension that delegates
 agent decisions to [Jev](https://typesafe.ai), TypeSafe AI's "System One"
-decision model — instead of deciding from vibes, the agent sends concrete
-context plus a batch of typed questions and gets typed probabilistic answers
-back in ~100–500ms.
+decision model. Instead of assuming based off context, the model can use the result 
+of Jev instead
 
 ## Install
 
@@ -15,9 +14,7 @@ pi install npm:pi-jev-advisor
 ## Setup
 
 Run `/jev-connect` inside pi and paste an API key from
-[console.typesafe.ai](https://console.typesafe.ai) (early access). The key is
-validated live before saving to `~/.pi/agent/jev.json` (mode 600). The
-`JEV_API_KEY` environment variable takes precedence.
+[console.typesafe.ai](https://console.typesafe.ai).
 
 ## The `jev_advise` tool
 
@@ -42,25 +39,22 @@ than separate calls. Three question types:
     { "id": "needs_user", "type": "noul", "instructions": "Should the user decide this" }
   ]
 }
-```
+```                              
 
+
+
+
+
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
 Results render one line per question. When the top two options are within
 0.05 probability or confidence drops below 0.6, the answer is flagged
 `NEAR-TIE — consider asking the user`, and the agent is steered to surface the
 tie instead of picking.
 
-## Steering
-
-The extension registers prompt guidelines that make consulting Jev a workflow
-requirement: development decisions (approach, library, algorithm, strategy),
-framing questions for the user (Jev picks the question; the user makes the
-decision), and post-write code-quality self-checks against explicit levels.
-
-## Cost
-
-Jev input is $0.042 per million tokens; output is free. A typical batched
-decision costs a fraction of a cent. Token usage is reported into pi's usage
-totals.
 
 ## License
 
