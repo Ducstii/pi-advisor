@@ -172,7 +172,8 @@ function formatChoice(id: string, answer: JevAnswer): string {
 		return `${id} → ${top[0]} (confidence ${fmt(confidence)}) · next: ${second ? `${second[0]} ${fmt(second[1])}` : "n/a"}`;
 	}
 	// Contract-permitted: choice answer without probabilities — winner field only.
-	if (answer.choice) return `${id} → ${answer.choice} (confidence ${fmt(confidence)})`;
+	if (answer.choice)
+		return `${id} → ${answer.choice} (confidence ${fmt(confidence)})`;
 	return `${id} → no answer`;
 }
 
@@ -346,9 +347,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			let key: string | undefined;
 			try {
-				key = await ctx.ui.input(
-					"Jev API key (get one at console.typesafe.ai):",
-				);
+				key = await ctx.ui.input("Jev API key (get one at console.typesafe.ai):");
 			} catch (cause) {
 				ctx.ui.notify(
 					`Key prompt failed: ${cause instanceof Error ? cause.message : String(cause)}`,
