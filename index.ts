@@ -45,7 +45,10 @@ interface JevResponse {
 /** Flat `{type:"string",enum:[...]}` schema; `Type.Union([Type.Literal()])` produces
  *  anyOf that Google models reject. Local copy of pi-ai's StringEnum to avoid a
  *  peer dependency for one helper (pi-ask-user precedent). */
-function StringEnum<T extends readonly string[]>(values: T, description?: string) {
+function StringEnum<T extends readonly string[]>(
+	values: T,
+	description?: string,
+) {
 	return Type.Unsafe<T[number]>({
 		type: "string",
 		enum: [...values],
@@ -58,7 +61,9 @@ async function resolveKey(): Promise<string> {
 	const env = process.env.JEV_API_KEY;
 	if (env) return env;
 	try {
-		const raw = JSON.parse(await readFile(JEV_KEY_FILE, "utf8")) as { apiKey?: string };
+		const raw = JSON.parse(await readFile(JEV_KEY_FILE, "utf8")) as {
+			apiKey?: string;
+		};
 		if (raw.apiKey) return raw.apiKey;
 	} catch {
 		// unreadable or absent file → missing key below
@@ -78,12 +83,22 @@ async function jevRequest(
 	try {
 		response = await fetch(JEV_ENDPOINT, {
 			method: "POST",
-			headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${key}`,
+			},
 			body: JSON.stringify({ state, model: JEV_MODEL, questions }),
-			signal: AbortSignal.any([AbortSignal.timeout(JEV_TIMEOUT_MS), ...(signal ? [signal] : [])]),
+			signal: AbortSignal.any([
+				AbortSignal.timeout(JEV_TIMEOUT_MS),
+				...(signal ? [signal] : []),
+			]),
 		});
 	} catch (cause) {
-		throw new Error(`Jev unavailable, try again later (${cause instanceof Error ? cause.message : String(cause)})`);
+		// Esc-cancel aborts the caller signal; the 10s timeout throws TimeoutError instead.
+		if (signal?.aborted) throw new Error("Jev call cancelled");
+		throw new Error(
+			`Jev unavailable, try again later (${cause instanceof Error ? cause.message : String(cause)})`,
+		);
 	}
 	if (response.ok) return (await response.json()) as JevResponse;
 	const { status } = response;
@@ -96,12 +111,17 @@ async function jevRequest(
 	if (status === 422) {
 		let apiMessage = await response.text().catch(() => "");
 		try {
-			const parsed = JSON.parse(apiMessage) as { error?: { message?: string }; message?: string };
+			const parsed = JSON.parse(apiMessage) as {
+				error?: { message?: string };
+				message?: string;
+			};
 			apiMessage = parsed.error?.message ?? parsed.message ?? apiMessage;
 		} catch {
 			// non-JSON body is the best available message
 		}
-		throw new Error(`Jev rejected the request: ${apiMessage || response.statusText}`);
+		throw new Error(
+			`Jev rejected the request: ${apiMessage || response.statusText}`,
+		);
 	}
 	throw new Error(`Jev rejected the request: ${status} ${response.statusText}`);
 }
@@ -117,11 +137,17 @@ async function callJev(
 
 /** Convert the tool's questions array into Jev's id-keyed request map: choice
  *  options → criteria map, score scale → criteria array, noul takes neither. */
-export function toQuestionMap(questions: JevQuestionInput[]): Record<string, object> {
+export function toQuestionMap(
+	questions: JevQuestionInput[],
+): Record<string, object> {
 	return Object.fromEntries(
 		questions.map(({ id, options, scale, ...rest }) => [
 			id,
-			options ? { ...rest, criteria: options } : scale ? { ...rest, criteria: scale } : rest,
+			options
+				? { ...rest, criteria: options }
+				: scale
+					? { ...rest, criteria: scale }
+					: rest,
 		]),
 	);
 }
@@ -129,15 +155,25 @@ export function toQuestionMap(questions: JevQuestionInput[]): Record<string, obj
 const fmt = (n: number, digits = 2) => n.toFixed(digits);
 
 function formatChoice(id: string, answer: JevAnswer): string {
-	const probs = Object.entries(answer.probabilities ?? {}).sort((a, b) => b[1] - a[1]);
+	const probs = Object.entries(answer.probabilities ?? {}).sort(
+		(a, b) => b[1] - a[1],
+	);
 	const top = probs[0];
 	const second = probs[1];
 	const confidence = answer.confidence ?? 0;
-	if (top && second && (top[1] - second[1] <= NEAR_TIE_DELTA || confidence < NEAR_TIE_CONFIDENCE)) {
+	if (
+		top &&
+		second &&
+		(top[1] - second[1] <= NEAR_TIE_DELTA || confidence < NEAR_TIE_CONFIDENCE)
+	) {
 		return `${id} → ${top[0]} (${fmt(top[1])}) ≈ ${second[0]} (${fmt(second[1])}) · NEAR-TIE — consider asking the user`;
 	}
-	if (!top) return `${id} → no answer`;
-	return `${id} → ${top[0]} (confidence ${fmt(confidence)}) · next: ${second ? `${second[0]} ${fmt(second[1])}` : "n/a"}`;
+	if (top) {
+		return `${id} → ${top[0]} (confidence ${fmt(confidence)}) · next: ${second ? `${second[0]} ${fmt(second[1])}` : "n/a"}`;
+	}
+	// Contract-permitted: choice answer without probabilities — winner field only.
+	if (answer.choice) return `${id} → ${answer.choice} (confidence ${fmt(confidence)})`;
+	return `${id} → no answer`;
 }
 
 function formatScore(id: string, answer: JevAnswer): string {
@@ -149,13 +185,18 @@ function formatScore(id: string, answer: JevAnswer): string {
 		: Object.entries(answer.legend ?? {})
 				.sort(([a], [b]) => Number(a) - Number(b))
 				.map(([, label]) => label);
-	const index = Number.isFinite(score) ? Math.max(0, Math.min(legend.length - 1, Math.round(score))) : -1;
+	const index = Number.isFinite(score)
+		? Math.max(0, Math.min(legend.length - 1, Math.round(score)))
+		: -1;
 	const label = legend[index] === undefined ? "" : ` "${legend[index]}"`;
 	return `${id} → ${fmt(score, 1)}${label} (confidence ${fmt(answer.confidence ?? 0)})`;
 }
 
 function formatNoul(id: string, answer: JevAnswer): string {
-	const p = typeof answer.noul === "number" ? answer.noul : (answer.probabilities?.yes ?? 0);
+	const p =
+		typeof answer.noul === "number"
+			? answer.noul
+			: (answer.probabilities?.yes ?? 0);
 	return `${id} → ${p >= 0.5 ? "yes" : "no"} ${fmt(p)}`;
 }
 
@@ -178,7 +219,13 @@ function toUsage(usage: JevResponse["usage"]) {
 		cacheRead: 0,
 		cacheWrite: 0,
 		totalTokens: input + output,
-		cost: { input: costInput, output: 0, cacheRead: 0, cacheWrite: 0, total: costInput },
+		cost: {
+			input: costInput,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			total: costInput,
+		},
 	};
 }
 
@@ -187,22 +234,29 @@ function validateQuestions(questions: JevQuestionInput[]): void {
 		if (q.type === "choice") {
 			const entries = Object.keys(q.options ?? {}).length;
 			if (entries < 1 || entries > 255) {
-				throw new Error(`Question "${q.id}": choice type requires options with 1–255 entries`);
+				throw new Error(
+					`Question "${q.id}": choice type requires options with 1–255 entries`,
+				);
 			}
 		} else if (q.type === "score" && (q.scale?.length ?? 0) < 2) {
-			throw new Error(`Question "${q.id}": score type requires a scale of at least 2 levels`);
+			throw new Error(
+				`Question "${q.id}": score type requires a scale of at least 2 levels`,
+			);
 		}
 	}
 }
 
 const questionSchema = Type.Object({
-	id: Type.String({ description: "Unique id for this question; answers are keyed by it" }),
+	id: Type.String({
+		description: "Unique id for this question; answers are keyed by it",
+	}),
 	type: StringEnum(
 		["choice", "score", "noul"] as const,
 		"choice = pick one option (requires options); score = rate on an ordered scale (requires scale); noul = yes/no probability",
 	),
 	instructions: Type.String({
-		description: "One specific, well-scoped question; decompose complex decisions into atomic questions",
+		description:
+			"One specific, well-scoped question; decompose complex decisions into atomic questions",
 	}),
 	options: Type.Optional(
 		Type.Record(Type.String(), Type.String(), {
@@ -211,7 +265,8 @@ const questionSchema = Type.Object({
 	),
 	scale: Type.Optional(
 		Type.Array(Type.String(), {
-			description: "score only: ordered level descriptions, lowest first (2+ entries)",
+			description:
+				"score only: ordered level descriptions, lowest first (2+ entries)",
 		}),
 	),
 });
@@ -236,12 +291,17 @@ export default function (pi: ExtensionAPI) {
 					"Full concrete facts the questions are about — code, diffs, constraints, prior results; becomes Jev's working state",
 			}),
 			questions: Type.Array(questionSchema, {
-				description: "Batch of atomic questions, all answered in one call (~10x cheaper than separate calls)",
+				description:
+					"Batch of atomic questions, all answered in one call (~10x cheaper than separate calls)",
 			}),
 		}),
 		async execute(_toolCallId, params, signal) {
 			validateQuestions(params.questions);
-			const response = await callJev(params.context, toQuestionMap(params.questions), signal);
+			const response = await callJev(
+				params.context,
+				toQuestionMap(params.questions),
+				signal,
+			);
 			const text = params.questions
 				.map((q) => {
 					const answer = response.answers[q.id];
@@ -265,8 +325,12 @@ export default function (pi: ExtensionAPI) {
 		},
 		renderResult(result, _options, theme, context) {
 			const first = result.content[0];
-			const line = first?.type === "text" ? first.text.split("\n")[0] ?? "" : "";
-			return new Text(context.isError ? theme.fg("error", line) : theme.fg("success", line), 0, 0);
+			const line = first?.type === "text" ? (first.text.split("\n")[0] ?? "") : "";
+			return new Text(
+				context.isError ? theme.fg("error", line) : theme.fg("success", line),
+				0,
+				0,
+			);
 		},
 	});
 
@@ -280,7 +344,18 @@ export default function (pi: ExtensionAPI) {
 				);
 				return;
 			}
-			const key = await ctx.ui.input("Jev API key (get one at console.typesafe.ai):");
+			let key: string | undefined;
+			try {
+				key = await ctx.ui.input(
+					"Jev API key (get one at console.typesafe.ai):",
+				);
+			} catch (cause) {
+				ctx.ui.notify(
+					`Key prompt failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+					"error",
+				);
+				return;
+			}
 			if (key === undefined) {
 				ctx.ui.notify("Cancelled", "info");
 				return;
@@ -288,14 +363,33 @@ export default function (pi: ExtensionAPI) {
 			try {
 				// Live validation with the entered key (env/file key must not shadow it).
 				await jevRequest(key.trim(), "", {
-					connect_check: { type: "noul", instructions: "Connectivity check. Answer yes." },
+					connect_check: {
+						type: "noul",
+						instructions: "Connectivity check. Answer yes.",
+					},
 				});
 			} catch (cause) {
-				ctx.ui.notify(cause instanceof Error ? cause.message : String(cause), "error");
+				ctx.ui.notify(
+					cause instanceof Error ? cause.message : String(cause),
+					"error",
+				);
 				return;
 			}
-			await writeFile(JEV_KEY_FILE, `${JSON.stringify({ apiKey: key.trim() })}\n`);
-			await chmod(JEV_KEY_FILE, 0o600);
+			try {
+				// mode 0o600 closes the create-time window (umask default would be 644).
+				await writeFile(
+					JEV_KEY_FILE,
+					`${JSON.stringify({ apiKey: key.trim() })}\n`,
+					{ mode: 0o600 },
+				);
+				await chmod(JEV_KEY_FILE, 0o600);
+			} catch (cause) {
+				ctx.ui.notify(
+					`Failed to save Jev key — not saved (${cause instanceof Error ? cause.message : String(cause)})`,
+					"error",
+				);
+				return;
+			}
 			ctx.ui.notify(
 				`Jev key valid — saved to ${JEV_KEY_FILE} (mode 600)\nendpoint: ${JEV_ENDPOINT}\nmodel: ${JEV_MODEL}`,
 				"info",
