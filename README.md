@@ -51,9 +51,11 @@ truth — tune them with `JEV_NEAR_TIE_DELTA` and `JEV_NEAR_TIE_CONFIDENCE`.
 Anti-verbosity is part of the contract: the guidance tells the agent not to
 call for facts readable from the repo, naming trivia, or re-decisions without
 new evidence; to fold quality-check questions into the same batch as the
-decision rather than paying for a separate verify pass; and to stress-test
+decision rather than paying for a separate verify pass; to stress-test
 important verdicts with one adversarial re-ask (counter-context, reversed
-option order). Questions asking Jev for its own confidence are rejected with
+option order); and — when a risk is flagged — to re-ask with candidate failure
+paths enumerated as named `options`, so Jev's distribution pinpoints *which*
+mechanism instead of sending the agent scrolling through the code. Questions asking Jev for its own confidence are rejected with
 a teaching error — read the reported distribution instead. Thin context
 (< 200 chars) on a multi-question batch gets a warning line in the result.
 

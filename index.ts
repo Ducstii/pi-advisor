@@ -166,8 +166,7 @@ function formatChoice(id: string, answer: JevAnswer): string {
 	if (
 		top &&
 		second &&
-		(top[1] - second[1] <= NEAR_TIE_DELTA ||
-			confidence <= NEAR_TIE_CONFIDENCE)
+		(top[1] - second[1] <= NEAR_TIE_DELTA || confidence <= NEAR_TIE_CONFIDENCE)
 	) {
 		return `${id} → ${top[0]} (${fmt(top[1])}) ≈ ${second[0]} (${fmt(second[1])}) · NEAR-TIE — consider asking the user`;
 	}
@@ -175,7 +174,8 @@ function formatChoice(id: string, answer: JevAnswer): string {
 		const margin = second ? top[1] - second[1] : 1;
 		// Surface a meaningful third option — a 0.4/0.35/0.25 spread must not render
 		// like a 0.9/0.08/0.02 confident winner.
-		const third = probs[2] && probs[2][1] > 0.2 ? ` · ${probs[2][0]} ${fmt(probs[2][1])}` : "";
+		const third =
+			probs[2] && probs[2][1] > 0.2 ? ` · ${probs[2][0]} ${fmt(probs[2][1])}` : "";
 		return `${id} → ${top[0]} (confidence ${fmt(confidence)}) · next: ${second ? `${second[0]} ${fmt(second[1])}` : "n/a"}${third} · margin ${fmt(margin)}`;
 	}
 	// Contract-permitted: choice answer without probabilities — winner field only.
@@ -300,6 +300,7 @@ export default function (pi: ExtensionAPI) {
 			"Read confidence from jev_advise's reported answer distribution — never ask jev_advise a separate 'how confident are you' question; it does not see its own probabilities and returns a flat, meaningless self-assessment.",
 			"When a jev_advise verdict is NEAR-TIE or the decision is irreversible, re-ask ONCE with adversarial counter-context and the option order reversed: a verdict that survives the counter-case and the order swap is informed; one that flips was anchored.",
 			"When jev_advise reports a NEAR-TIE or low confidence, treat the decision as user-facing: present the tied options to the user.",
+			"When jev_advise flags a risk or problem, do not hunt the code yourself: re-ask with the candidate failure paths enumerated as `options` (or one atomic question per candidate), each option naming a specific mechanism — Jev's distribution then points at the specific one; verify only that path in the code.",
 		],
 		parameters: Type.Object({
 			context: Type.String({
@@ -325,10 +326,7 @@ export default function (pi: ExtensionAPI) {
 			// Thin context + multi-question batches is the known degradation mode:
 			// agents summarize instead of pasting code. Warn, don't fail — some
 			// decisions are genuinely self-contained.
-			if (
-				params.context.trim().length < 200 &&
-				params.questions.length >= 2
-			) {
+			if (params.context.trim().length < 200 && params.questions.length >= 2) {
 				lines.unshift(
 					"⚠ context is thin (< 200 chars) for a multi-question batch — verdicts degrade on summaries; paste the load-bearing code/diffs verbatim",
 				);
