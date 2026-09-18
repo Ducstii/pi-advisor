@@ -1,10 +1,9 @@
 # pi-jev-advisor
 
-[pi coding-agent](https://github.com/badlogic/pi-mono) extension that delegates
-agent decisions to [Jev](https://typesafe.ai), TypeSafe AI's "System One"
-decision model — instead of deciding from vibes, the agent sends concrete
-context plus a batch of typed questions and gets typed probabilistic answers
-back in ~100–500ms.
+A [pi coding-agent](https://github.com/badlogic/pi-mono) extension that sends
+agent decisions to [Jev](https://typesafe.ai), a decision model from TypeSafe
+AI. The agent sends context and a batch of questions, and gets probabilities
+back in 100-500ms.
 
 ## Install
 
@@ -12,32 +11,28 @@ back in ~100–500ms.
 pi install npm:pi-jev-advisor
 ```
 
-## Setup
-
-Run `/jev-connect` inside pi and paste an API key from
-[console.typesafe.ai](https://console.typesafe.ai). The key is validated live
-before saving to `~/.pi/agent/jev.json` (mode 600). The `JEV_API_KEY`
-environment variable takes precedence.
+Run `/jev-connect` and paste an API key from
+[console.typesafe.ai](https://console.typesafe.ai). The key is saved to
+`~/.pi/agent/jev.json` (mode 600). The `JEV_API_KEY` environment variable
+overrides it.
 
 ## The `jev_advise` tool
 
-One call carries a batch of questions — batching is ~10× cheaper and faster
-than separate calls. Three question types:
+One call carries a batch of questions, which is about 10x cheaper than
+separate calls. Three question types:
 
 | Type | Ask | Get |
 | ------ | ----- | ----- |
-| `choice` | options with descriptions | winner + full probability distribution + confidence |
-| `score` | ordered scale levels, lowest first | weighted score (can land between levels) + legend + confidence |
-| `noul` | a yes/no question | yes-probability 0–1 |
+| `choice` | options with descriptions | winner, probability distribution, confidence |
+| `score` | ordered scale levels, lowest first | weighted score, legend, confidence |
+| `noul` | a yes/no question | yes-probability between 0 and 1 |
 
 ```jsonc
-// what the agent sends — context shape: the decision, hard constraints,
-// verbatim load-bearing code/diffs, cost of a wrong choice
 {
-  "context": "The diff and constraints under decision",
+  "context": "The decision, hard constraints, relevant code, cost of a wrong choice",
   "questions": [
     { "id": "approach", "type": "choice", "instructions": "Which retry strategy",
-      "options": { "exponential": "Backoff ×2 each retry", "fixed": "Constant 1s" } },
+      "options": { "exponential": "Backoff x2 each retry", "fixed": "Constant 1s" } },
     { "id": "complexity", "type": "score", "instructions": "How complex is this change",
       "scale": ["trivial", "moderate", "hairball"] },
     { "id": "needs_user", "type": "noul", "instructions": "Should the user decide this" }
@@ -45,37 +40,29 @@ than separate calls. Three question types:
 }
 ```
 
-Each answer renders as one line, including the winner margin. When the top two
-options are within 0.05 probability or confidence is at or below 0.6, the
-answer is flagged `NEAR-TIE — consider asking the user`, and the agent is
-steered to surface the tie instead of picking. Thresholds are policy, not
-truth — tune them with `JEV_NEAR_TIE_DELTA` and `JEV_NEAR_TIE_CONFIDENCE`.
+If the top two options are within 0.05 probability, or confidence is 0.6 or
+lower, the answer is flagged `NEAR-TIE` and the agent should ask the user
+instead of picking. Tune the thresholds with `JEV_NEAR_TIE_DELTA` and
+`JEV_NEAR_TIE_CONFIDENCE`.
 
 ## How the agent is steered
 
-The extension registers prompt guidelines that make Jev a workflow requirement
-with hard edges:
+The extension registers prompt guidelines telling the agent to:
 
-- **Call it for judgment calls** — approach, library, algorithm, strategy —
-  with verbatim load-bearing code in `context`; not for facts readable from
-  the repo, naming trivia, or re-decisions without new evidence.
-- **Verify in the same batch** — quality-check questions ride along with the
-  decision, so there's no separate verify pass to pay for.
-- **Pinpoint, don't hunt** — when a risk is flagged, re-ask with candidate
-  failure paths as named `options`; the distribution points at the specific
-  mechanism.
-- **Stress-test important verdicts** — one adversarial re-ask with
-  counter-context and reversed option order; a verdict that survives both is
-  informed, one that flips was anchored.
-- **NEAR-TIE goes to the human.** Confidence questions are rejected outright
-  with a teaching error (read the reported distribution instead), and thin
-  context on a multi-question batch gets a warning in the result.
+- Call `jev_advise` for judgment calls (which approach, library, algorithm, or
+  strategy) with relevant code in the context, and not for facts it can read
+  from the repo.
+- Add a quality-check question to the same batch as the decision.
+- When a risk is flagged, re-ask with candidate failure paths as options so
+  the distribution points at the specific one.
+- Stress-test important verdicts by re-asking with counter-context and
+  reversed option order.
+- Bring NEAR-TIE answers to the user.
 
 ## Cost
 
-Jev input is $0.042 per million tokens; output is free. A typical batched
-decision costs a fraction of a cent. Token usage is reported into pi's usage
-totals.
+Input costs $0.042 per million tokens, output is free. A batched decision
+costs a fraction of a cent. Usage is reported into pi's totals.
 
 ## License
 
